@@ -28,6 +28,7 @@ class RedsysController(http.Controller):
         ],
         type="http",
         auth="public",
+        methods=["POST"],
         csrf=False,
     )
     def redsys_return(self, **post):
@@ -36,7 +37,7 @@ class RedsysController(http.Controller):
             "Redsys: entering form_feedback with post data %s", pprint.pformat(post)
         )
         if post:
-            request.env["payment.transaction"].sudo().form_feedback(post, "redsys")
+            request.env["payment.transaction"].sudo()._handle_feedback_data("redsys", post)
         return_url = post.pop("return_url", "")
         if not return_url:
             return_url = "/shop"
@@ -50,4 +51,6 @@ class RedsysController(http.Controller):
         website=True,
     )
     def redsys_result(self, page, **vals):
-        return werkzeug.utils.redirect("/payment/process")
+        if vals:
+            request.env["payment.transaction"].sudo()._get_tx_from_feedback_data("redsys", vals)
+        return werkzeug.utils.redirect("/payment/status")

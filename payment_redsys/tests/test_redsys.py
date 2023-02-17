@@ -3,9 +3,9 @@
 
 import json
 import logging
-from unittest.mock import patch
 
 from lxml import objectify
+from mock import patch
 
 from odoo import http
 from odoo.tests.common import HttpCase
@@ -67,6 +67,7 @@ class RedsysCase(HttpCase):
         self.redsys.journal_id = bank_journal.id
         self.redsys.redsys_merchant_code = "069611024"
         self.redsys.redsys_secret_key = "sq7HjrUOBfKmC576ILgskD5srU870gJ8"
+        self.redsys.send_quotation = False
         self.redsys_ds_parameters = {
             "Ds_AuthorisationCode": "999999",
             "Ds_Date": "14%2F05%2F2017",
@@ -191,7 +192,7 @@ class RedsysCase(HttpCase):
                 self.redsys.redsys_secret_key, DS_parameters
             ),
             "Ds_MerchantParameters": DS_parameters,
-            "Ds_SignatureVersion": "HMAC_SHA256_V1",
+            "Ds_SignatureVersion": u"HMAC_SHA256_V1",
         }
         self._form_feedback(redsys_post_data)
         self.assertEqual(self.tx.redsys_txnid, "999999", "Redsys: Get transaction")
@@ -220,7 +221,7 @@ class RedsysCase(HttpCase):
                 self.redsys.redsys_secret_key, DS_parameters
             ),
             "Ds_MerchantParameters": DS_parameters,
-            "Ds_SignatureVersion": "HMAC_SHA256_V1",
+            "Ds_SignatureVersion": u"HMAC_SHA256_V1",
         }
         self._form_feedback(redsys_post_data)
         self.assertEqual(
@@ -242,7 +243,7 @@ class RedsysCase(HttpCase):
                 self.redsys.redsys_secret_key, DS_parameters
             ),
             "Ds_MerchantParameters": DS_parameters,
-            "Ds_SignatureVersion": "HMAC_SHA256_V1",
+            "Ds_SignatureVersion": u"HMAC_SHA256_V1",
         }
         self._form_feedback(redsys_post_data)
         # Get transaction
@@ -265,7 +266,7 @@ class RedsysCase(HttpCase):
                 self.redsys.redsys_secret_key, DS_parameters
             ),
             "Ds_MerchantParameters": DS_parameters,
-            "Ds_SignatureVersion": "HMAC_SHA256_V1",
+            "Ds_SignatureVersion": u"HMAC_SHA256_V1",
         }
         self._form_feedback(redsys_post_data)
         # Get transaction
@@ -307,7 +308,7 @@ class RedsysCase(HttpCase):
                 self.redsys.redsys_secret_key, DS_parameters
             ),
             "Ds_MerchantParameters": DS_parameters,
-            "Ds_SignatureVersion": "HMAC_SHA256_V1",
+            "Ds_SignatureVersion": u"HMAC_SHA256_V1",
         }
         self.tx.sale_order_ids = [(6, 0, self.so.ids)]
         # Get transaction

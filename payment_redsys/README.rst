@@ -14,20 +14,18 @@ Pasarela de pago Redsys
     :target: http://www.gnu.org/licenses/agpl-3.0-standalone.html
     :alt: License: AGPL-3
 .. |badge3| image:: https://img.shields.io/badge/github-OCA%2Fl10n--spain-lightgray.png?logo=github
-    :target: https://github.com/OCA/l10n-spain/tree/14.0/payment_redsys
+    :target: https://github.com/OCA/l10n-spain/tree/13.0/payment_redsys
     :alt: OCA/l10n-spain
 .. |badge4| image:: https://img.shields.io/badge/weblate-Translate%20me-F47D42.png
-    :target: https://translation.odoo-community.org/projects/l10n-spain-14-0/l10n-spain-14-0-payment_redsys
+    :target: https://translation.odoo-community.org/projects/l10n-spain-13-0/l10n-spain-13-0-payment_redsys
     :alt: Translate me on Weblate
 .. |badge5| image:: https://img.shields.io/badge/runbot-Try%20me-875A7B.png
-    :target: https://runbot.odoo-community.org/runbot/189/14.0
+    :target: https://runbot.odoo-community.org/runbot/189/13.0
     :alt: Try me on Runbot
 
 |badge1| |badge2| |badge3| |badge4| |badge5| 
 
-Este módulo añade la opción de pago a través de la pasarela de Redsys, pudiendo
-seleccionar entre los métodos de pago: pago con tarjeta, pago por transferencia,
-domiciliación y Bizum.
+Este módulo añade la opción de pago a través de la pasarela de Redsys.
 
 **Table of contents**
 
@@ -67,8 +65,12 @@ Parámetros
 
 * **Idioma TPV**: Indicaremos el idioma en el TPV.
 
-* **Método de pago**: Indicaremos qué tipo de pago se debe aceptar, pago con
-  tarjeta, Bizum u otro de los disponibles.
+* **URL_OK/URL_KO**: Durante el proceso del pago, y una vez que
+  se muestra al cliente la pantalla con el resultado del mismo, es
+  posible redirigir su navegador a una URL para las transacciones
+  autorizadas y a otra si la transacción ha sido denegada. A éstas
+  se las denomina URL_OK y URL_KO, respectivamente. Se trata
+  de dos URLs que pueden ser proporcionadas por el comercio.
 
 * **Porcentaje de pago**: Indicar el porcentaje de pago que se permite, si
   se deja a 0.0 se entiende 100%.
@@ -84,13 +86,6 @@ En caso de que exista más de una base de datos en la instalación, cuando la
 pasarela de pago envía el formulario a "/payment/redsys/return" odoo no sabe
 con que base de datos procesar esta información, por lo que hay que establecer
 los parametros **dbfilter** y **dbname** en el archivo de configuración.
-
-Para mostrar simultáneamente en el comercio electrónico varios de los métodos
-de pago que proporciona Redsys, como pago con tarjeta y Bizum por ejemplo,
-debemos duplicar el medio de pago y escoger en el campo método de pago el que
-corresponda en cada caso.
-
-En el caso de Bizum, el titular del TPV deberá solicitar al banco su activación.
 
 Known issues / Roadmap
 ======================
@@ -111,7 +106,7 @@ Bug Tracker
 Bugs are tracked on `GitHub Issues <https://github.com/OCA/l10n-spain/issues>`_.
 In case of trouble, please check there if your issue has already been reported.
 If you spotted it first, help us smashing it by providing a detailed and welcomed
-`feedback <https://github.com/OCA/l10n-spain/issues/new?body=module:%20payment_redsys%0Aversion:%2014.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
+`feedback <https://github.com/OCA/l10n-spain/issues/new?body=module:%20payment_redsys%0Aversion:%2013.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
 
 Do not contact contributors directly about support or help with technical issues.
 
@@ -131,7 +126,6 @@ Contributors
   * Sergio Teruel
   * Carlos Dauden
   * Carlos Roca
-  * João Marques
 
 * Isaac Gallart <igallart@puntsistemes.es>
 
@@ -152,6 +146,6 @@ OCA, or the Odoo Community Association, is a nonprofit organization whose
 mission is to support the collaborative development of Odoo features and
 promote its widespread use.
 
-This module is part of the `OCA/l10n-spain <https://github.com/OCA/l10n-spain/tree/14.0/payment_redsys>`_ project on GitHub.
+This module is part of the `OCA/l10n-spain <https://github.com/OCA/l10n-spain/tree/13.0/payment_redsys>`_ project on GitHub.
 
 You are welcome to contribute. To learn how please visit https://odoo-community.org/page/Contribute.

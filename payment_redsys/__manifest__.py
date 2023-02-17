@@ -1,15 +1,13 @@
 # Copyright 2017 Tecnativa - Sergio Teruel
-# Copyright 2020 Tecnativa - João Marques
 
 {
     "name": "Pasarela de pago Redsys",
     "category": "Payment Acquirer",
     "summary": "Payment Acquirer: Redsys Implementation",
-    "version": "14.0.2.0.4",
-    "author": "Tecnativa, Odoo Community Association (OCA)",
-    "website": "https://github.com/OCA/l10n-spain",
+    "version": "15.0.1.0.4",
+    "author": "Tecnativa," "Odoo Community Association (OCA)",
     "depends": ["payment", "website_sale"],
-    "external_dependencies": {"python": ["pycryptodome"]},
+    "external_dependencies": {"python": ["pycrypto"]},
     "data": [
         "views/redsys.xml",
         "views/payment_acquirer.xml",

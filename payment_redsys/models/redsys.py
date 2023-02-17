@@ -6,27 +6,28 @@
 import base64
 import hashlib
 import hmac
+
 import json
 import logging
 import urllib
-
-from Crypto.Cipher import DES3  # pylint: disable=W7936 - No real warning
-from werkzeug import urls
-
-from odoo import _, api, exceptions, fields, http, models
 from odoo.tools import config
-from odoo.tools.float_utils import float_compare
+from odoo import _, api, exceptions, fields, http, models
 
-from odoo.addons.payment.models.payment_acquirer import ValidationError
 
 _logger = logging.getLogger(__name__)
+
+try:
+    from Crypto.Cipher import DES3
+except ImportError:
+    _logger.info("Missing dependency (pycryptodome). See README.")
 
 
 class AcquirerRedsys(models.Model):
     _inherit = "payment.acquirer"
 
     def _get_redsys_urls(self, environment):
-        """Redsys URLs"""
+        """ Redsys URLs
+        """
         if environment == "prod":
             return {
                 "redsys_form_url": "https://sis.redsys.es/sis/realizarPago/",
@@ -36,9 +37,14 @@ class AcquirerRedsys(models.Model):
                 "redsys_form_url": "https://sis-t.redsys.es:25443/sis/realizarPago/",
             }
 
-    provider = fields.Selection(
-        selection_add=[("redsys", "Redsys")], ondelete={"redsys": "set default"}
-    )
+    def _get_redsys_url_s2s(self):
+        if self.state == "enabled":
+            return 'https://sis.redsys.es/sis/rest/trataPeticionREST'
+        else:
+            return 'https://sis-t.redsys.es:25443/sis/rest/trataPeticionREST'
+
+    provider = fields.Selection(selection_add=[("redsys", "Redsys")],
+                                ondelete={'redsys': 'set default', 'none': 'set default'})
     redsys_merchant_name = fields.Char("Merchant Name", required_if_provider="redsys")
     redsys_merchant_code = fields.Char("Merchant code", required_if_provider="redsys")
     redsys_merchant_description = fields.Char(
@@ -52,7 +58,7 @@ class AcquirerRedsys(models.Model):
         "Currency", default="978", required_if_provider="redsys"
     )
     redsys_transaction_type = fields.Char(
-        "Transtaction Type", default="0", required_if_provider="redsys"
+        "Transaction Type", default="0", required_if_provider="redsys"
     )
     redsys_merchant_data = fields.Char("Merchant Data")
     redsys_merchant_lang = fields.Selection(
@@ -79,7 +85,6 @@ class AcquirerRedsys(models.Model):
             ("T", "Pago con Tarjeta"),
             ("R", "Pago por Transferencia"),
             ("D", "Domiciliacion"),
-            ("z", "Bizum"),
         ],
         "Payment Method",
         default="T",
@@ -87,13 +92,14 @@ class AcquirerRedsys(models.Model):
     redsys_signature_version = fields.Selection(
         [("HMAC_SHA256_V1", "HMAC SHA256 V1")], default="HMAC_SHA256_V1"
     )
+    send_quotation = fields.Boolean("Send quotation", default=True)
     redsys_percent_partial = fields.Float(
         string="Reduction percent",
         digits="Account",
         help="Write percent reduction payment, for this method payment."
-        "With this option you can allow partial payments in your "
-        "shop online, the residual amount in pending for do a manual "
-        "payment later.",
+             "With this option you can allow partial payments in your "
+             "shop online, the residual amount in pending for do a manual "
+             "payment later.",
     )
 
     @api.constrains("redsys_percent_partial")
@@ -106,7 +112,7 @@ class AcquirerRedsys(models.Model):
     @api.model
     def _get_website_callback_url(self):
         """For force a callback url from Redsys distinct to base url website,
-        only apply to a Redsys response.
+         only apply to a Redsys response.
         """
         get_param = self.env["ir.config_parameter"].sudo().get_param
         return get_param("payment_redsys.callback_url")
@@ -120,29 +126,19 @@ class AcquirerRedsys(models.Model):
         """
         if config["test_enable"]:
             return self.env["ir.config_parameter"].sudo().get_param("web.base.url")
-        # For a JSON request, there's no `website` attribute. Fallback to context if any
-        website = (
-            hasattr(http.request, "website")
-            and http.request.website
-            or self.env.context.get("website_id")
-            and self.env["website"].browse(self.env.context["website_id"])
-        )
-        domain = website and website.domain or ""
-        if domain and domain != "localhost":
-            # Check domain scheme as Odoo does in `website._get_http_domain()`
-            parsed_url = urls.url_parse(domain)
-            base_url = (
-                "{}://{}".format(
-                    http.request.httprequest.environ["wsgi.url_scheme"], domain
-                )
-                if not parsed_url.scheme
-                else domain
-            )
+
+        domain = False
+        # _logger.info("=========%r",[http.request])
+        if hasattr(http.request, 'website'):
+            domain = http.request.website.domain
+
+        if domain:
+            base_url = http.request.website.domain
         else:
             base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
         return base_url or ""
 
-    def _prepare_merchant_parameters(self, tx_values):
+    def _prepare_merchant_parameters(self, tx_values, recurring=True):
         # Check multi-website
         base_url = self._get_website_url()
         callback_url = self._get_website_callback_url()
@@ -154,33 +150,33 @@ class AcquirerRedsys(models.Model):
             "Ds_Merchant_Amount": str(int(round(tx_values["amount"] * 100))),
             "Ds_Merchant_Currency": self.redsys_currency or "978",
             "Ds_Merchant_Order": (
-                tx_values["reference"] and tx_values["reference"][-12:] or False
+                    tx_values["reference"] and tx_values["reference"][-12:] or False
             ),
             "Ds_Merchant_MerchantCode": (
-                self.redsys_merchant_code and self.redsys_merchant_code[:9]
+                    self.redsys_merchant_code and self.redsys_merchant_code[:9]
             ),
             "Ds_Merchant_Terminal": self.redsys_terminal or "1",
             "Ds_Merchant_TransactionType": (self.redsys_transaction_type or "0"),
+            # "DS_MERCHANT_COF_INI": "S",
+            # "DS_MERCHANT_COF_TYPE": "R",
+            # "DS_MERCHANT_IDENTIFIER": "REQUIRED",
             "Ds_Merchant_Titular": tx_values.get(
                 "billing_partner", self.env.user.partner_id
             ).display_name[:60],
             "Ds_Merchant_MerchantName": (
-                self.redsys_merchant_name and self.redsys_merchant_name[:25]
+                    self.redsys_merchant_name and self.redsys_merchant_name[:25]
             ),
-            "Ds_Merchant_MerchantUrl": (
-                "%s/payment/redsys/return" % (callback_url or base_url)
-            )[:250],
+            "Ds_Merchant_MerchantUrl": ("%s/payment/redsys/return" % (callback_url or base_url))[:250],
             "Ds_Merchant_MerchantData": self.redsys_merchant_data or "",
-            "Ds_Merchant_ProductDescription": (
-                self._product_description(tx_values["reference"])
-                or self.redsys_merchant_description
-                and self.redsys_merchant_description[:125]
-            ),
+            "Ds_Merchant_ProductDescription": (self._product_description(tx_values["reference"])
+                                               or self.redsys_merchant_description
+                                               and self.redsys_merchant_description[:125]),
             "Ds_Merchant_ConsumerLanguage": (self.redsys_merchant_lang or "001"),
-            "Ds_Merchant_UrlOk": "%s/payment/redsys/result/redsys_result_ok" % base_url,
-            "Ds_Merchant_UrlKo": "%s/payment/redsys/result/redsys_result_ko" % base_url,
+            "Ds_Merchant_UrlOk": "%s/payment/redsys/result/redsys_result_ok" % (callback_url or base_url),
+            "Ds_Merchant_UrlKo": "%s/payment/redsys/result/redsys_result_ko" % (callback_url or base_url),
             "Ds_Merchant_Paymethods": self.redsys_pay_method or "T",
         }
+        _logger.info("=======%r", values)
         return self._url_encode64(json.dumps(values))
 
     def _url_encode64(self, data):
@@ -210,14 +206,13 @@ class AcquirerRedsys(models.Model):
     def redsys_form_generate_values(self, values):
         self.ensure_one()
         redsys_values = dict(values)
-        merchant_parameters = self._prepare_merchant_parameters(values)
+        merchant_parameters = self._prepare_merchant_parameters(values).decode('utf-8')
         redsys_values.update(
             {
+                'api_url': self.redsys_get_form_action_url(),
                 "Ds_SignatureVersion": str(self.redsys_signature_version),
                 "Ds_MerchantParameters": merchant_parameters,
-                "Ds_Signature": self.sign_parameters(
-                    self.redsys_secret_key, merchant_parameters
-                ),
+                "Ds_Signature": (self.sign_parameters(self.redsys_secret_key, merchant_parameters)),
             }
         )
         return redsys_values
@@ -235,211 +230,38 @@ class AcquirerRedsys(models.Model):
             res = description[:125]
         return res
 
-
-class TxRedsys(models.Model):
-    _inherit = "payment.transaction"
-
-    redsys_txnid = fields.Char("Transaction ID")
-
-    def merchant_params_json2dict(self, data):
-        parameters = data.get("Ds_MerchantParameters", "")
-        return json.loads(base64.b64decode(parameters).decode())
-
-    # --------------------------------------------------
-    # FORM RELATED METHODS
-    # --------------------------------------------------
-
     @api.model
-    def _redsys_form_get_tx_from_data(self, data):
-        """Given a data dict coming from redsys, verify it and
-        find the related transaction record."""
-        parameters = data.get("Ds_MerchantParameters", "")
-        parameters_dic = json.loads(base64.b64decode(parameters).decode())
-        reference = urllib.parse.unquote(parameters_dic.get("Ds_Order", ""))
-        pay_id = parameters_dic.get("Ds_AuthorisationCode")
-        shasign = data.get("Ds_Signature", "").replace("_", "/").replace("-", "+")
-        test_env = config["test_enable"]
-        if not reference or not pay_id or not shasign:
-            error_msg = (
-                "Redsys: received data with missing reference"
-                " (%s) or pay_id (%s) or shashign (%s)" % (reference, pay_id, shasign)
-            )
-            if not test_env:
-                _logger.info(error_msg)
-                raise ValidationError(error_msg)
-            # For tests
-            http.OpenERPSession.tx_error = True
-        tx = self.search([("reference", "=", reference)])
-        if not tx or len(tx) > 1:
-            error_msg = "Redsys: received data for reference %s" % (reference)
-            if not tx:
-                error_msg += "; no order found"
-            else:
-                error_msg += "; multiple order found"
-            if not test_env:
-                _logger.info(error_msg)
-                raise ValidationError(error_msg)
-            # For tests
-            http.OpenERPSession.tx_error = True
-        if tx and not test_env:
-            # verify shasign
-            shasign_check = tx.acquirer_id.sign_parameters(
-                tx.acquirer_id.redsys_secret_key, parameters
-            )
-            if shasign_check != shasign:
-                error_msg = (
-                    "Redsys: invalid shasign, received %s, computed %s, "
-                    "for data %s" % (shasign, shasign_check, data)
-                )
-                _logger.info(error_msg)
-                raise ValidationError(error_msg)
-        return tx
-
-    def _redsys_form_get_invalid_parameters(self, data):
-        test_env = config["test_enable"]
-        invalid_parameters = []
-        parameters_dic = self.merchant_params_json2dict(data)
-        if (
-            self.acquirer_reference and parameters_dic.get("Ds_Order")
-        ) != self.acquirer_reference:
-            invalid_parameters.append(
-                (
-                    "Transaction Id",
-                    parameters_dic.get("Ds_Order"),
-                    self.acquirer_reference,
-                )
-            )
-
-        # check what is buyed
-        if self.acquirer_id.redsys_percent_partial > 0.0:
-            new_amount = self.amount - (
-                self.amount * self.acquirer_id.redsys_percent_partial / 100
-            )
-            self.amount = new_amount
-
-        if (
-            float_compare(
-                float(parameters_dic.get("Ds_Amount", "0.0")) / 100, self.amount, 2
-            )
-            != 0
-        ):
-            invalid_parameters.append(
-                ("Amount", parameters_dic.get("Ds_Amount"), "%.2f" % self.amount)
-            )
-
-        if invalid_parameters and test_env:
-            # If transaction is in test mode invalidate invalid_parameters
-            # to avoid logger error from parent method
-            return []
-        return invalid_parameters
-
-    @api.model
-    def _get_redsys_state(self, status_code):
-        if 0 <= status_code <= 100:
-            return "done"
-        elif status_code <= 203:
-            return "pending"
-        elif 912 <= status_code <= 9912:
-            return "cancel"
-        else:
-            return "error"
-
-    def _redsys_form_validate(self, data):
-        params = self.merchant_params_json2dict(data)
-        status_code = int(params.get("Ds_Response", "29999"))
-        state = self._get_redsys_state(status_code)
+    def redsys_s2s_form_process(self, data):
+        if not data.get('token'):
+            return False
         vals = {
-            "state": state,
-            "redsys_txnid": params.get("Ds_AuthorisationCode"),
-            "date": fields.Datetime.now(),
+            'name': 'Expired %s' % data.get('card'),
+            'partner_id': data.get('partner_id'),
+            'acquirer_id': data.get('acquirer_id'),
+            'acquirer_ref': data.get('token'),
+            'txnid': data.get('txnid')
         }
-        state_message = ""
-        feedback_error = False
-        if state == "done":
-            vals["state_message"] = _("Ok: %s") % params.get("Ds_Response")
-            self._set_transaction_done()
-            self._post_process_after_done()
-        elif state == "pending":  # 'Payment error: code: %s.'
-            state_message = _("Error: %s (%s)")
-            self._set_transaction_pending()
-        elif state == "cancel":  # 'Payment error: bank unavailable.'
-            state_message = _("Bank Error: %s (%s)")
-            self._set_transaction_cancel()
-        else:
-            state_message = _("Redsys: feedback error %s (%s)")
-            feedback_error = True
-        if state_message:
-            vals["state_message"] = state_message % (
-                params.get("Ds_Response"),
-                params.get("Ds_ErrorCode"),
-            )
-            if state == "error":
-                _logger.warning(vals["state_message"])
-            if feedback_error:
-                self._set_transaction_error(vals["state_message"])
-        self.write(vals)
-        return state != "error"
+        return self.env['payment.token'].sudo().create(vals)
 
-    @api.model
-    def form_feedback(self, data, acquirer_name):
-        res = super().form_feedback(data, acquirer_name)
-        if acquirer_name != "redsys":
-            return res
-        try:
-            tx_find_method_name = "_%s_form_get_tx_from_data" % acquirer_name
-            if hasattr(self, tx_find_method_name):
-                tx = getattr(self, tx_find_method_name)(data)
-            _logger.info(
-                "<%s> transaction processed: tx ref:%s, tx amount: %s",
-                acquirer_name,
-                tx.reference if tx else "n/a",
-                tx.amount if tx else "n/a",
-            )
-            if tx.acquirer_id.redsys_percent_partial > 0:
-                if tx and tx.sale_order_ids and tx.sale_order_ids.ensure_one():
-                    percent_reduction = tx.acquirer_id.redsys_percent_partial
-                    new_so_amount = tx.sale_order_ids.amount_total - (
-                        tx.sale_order_ids.amount_total * percent_reduction / 100
-                    )
-                    amount_matches = (
-                        tx.sale_order_ids.state in ["draft", "sent"]
-                        and float_compare(tx.amount, new_so_amount, 2) == 0
-                    )
-                    if amount_matches:
-                        if tx.state == "done":
-                            _logger.info(
-                                "<%s> transaction completed, confirming order "
-                                "%s (ID %s)",
-                                acquirer_name,
-                                tx.sale_order_ids.name,
-                                tx.sale_order_ids.id,
-                            )
-                            if not self.env.context.get("bypass_test", False):
-                                tx.sale_order_ids.with_context(
-                                    send_email=True
-                                ).action_confirm()
-                        elif (
-                            tx.state != "cancel" and tx.sale_order_ids.state == "draft"
-                        ):
-                            _logger.info(
-                                "<%s> transaction pending, sending "
-                                "quote email for order %s (ID %s)",
-                                acquirer_name,
-                                tx.sale_order_ids.name,
-                                tx.sale_order_ids.id,
-                            )
-                            if not self.env.context.get("bypass_test", False):
-                                tx.sale_order_ids.action_quotation_send()
-                    else:
-                        _logger.warning(
-                            "<%s> transaction MISMATCH for order " "%s (ID %s)",
-                            acquirer_name,
-                            tx.sale_order_ids.name,
-                            tx.sale_order_ids.id,
-                        )
-        except Exception:
-            _logger.exception(
-                "Fail to confirm the order or send the confirmation email%s",
-                tx and " for the transaction %s" % tx.reference or "",
-            )
-        return res
+    def _prepare_merchant_parameters_recurring(self, tx_values):
+        values = {
+            "DS_MERCHANT_IDENTIFIER": tx_values.get('token_ref'),
+            "DS_MERCHANT_COF_INI": "N",
+            "DS_MERCHANT_COF_TXNID": tx_values.get('txnid'),
+            "DS_MERCHANT_MERCHANTCODE": self.redsys_merchant_code and self.redsys_merchant_code[:9],
+            "DS_MERCHANT_TRANSACTIONTYPE": (self.redsys_transaction_type or "0"),
+            "DS_MERCHANT_EXCEP_SCA" : "MIT",
+            "DS_MERCHANT_DIRECTPAYMENT": "true",
+            "Ds_Merchant_Order": tx_values["reference"] and tx_values["reference"][-12:] or False,
+            "DS_MERCHANT_TERMINAL": self.redsys_terminal or "1",
+            "DS_MERCHANT_CURRENCY": self.redsys_currency or "978",
+            "DS_MERCHANT_AMOUNT": str(int(round(tx_values["amount"] * 100))),
+        }
+        return self._url_encode64(json.dumps(values))
+
+
+class PaymentToken(models.Model):
+    _inherit = 'payment.token'
+
+    txnid = fields.Char(string='Ds_Merchant_Cof_Txnid')
+

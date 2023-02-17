@@ -3,7 +3,6 @@
   * Sergio Teruel
   * Carlos Dauden
   * Carlos Roca
-  * João Marques
 
 * Isaac Gallart <igallart@puntsistemes.es>
 
